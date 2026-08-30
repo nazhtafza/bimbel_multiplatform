@@ -13,6 +13,7 @@ class AuthController {
   final Ref ref;
   AuthController(this.ref);
   Future<bool> signInWithPhone(String phoneNumber) async{
+    // send otp
     ref.read(authLoadingProvider.notifier).state = true;
     try{
       await Supabase.instance.client.auth.signInWithOtp(
@@ -25,6 +26,23 @@ class AuthController {
       print('Error mengirim kode OTP: $e');
       return false;
     }
+  }
 
+  // verification otp
+  Future<bool>verifyOtp(String phoneNumber, String otp) async{
+    ref.read(authLoadingProvider.notifier).state = true;
+    try{
+      final AuthResponse res = await Supabase.instance.client.auth.verifyOTP(
+        type: OtpType.sms,
+        token: otp,
+        phone: phoneNumber,
+      );
+      ref.read(authLoadingProvider.notifier).state = false;
+      return res.session !=null;
+    } catch (e){
+      ref.read(authLoadingProvider.notifier).state = false;
+      print('Error verifying OTP: $e');
+      return false;
+    }
   }
 }
