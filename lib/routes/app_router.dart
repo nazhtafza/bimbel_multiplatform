@@ -2,6 +2,8 @@ import 'package:education_payment_app/features/admin_dashboard/pages/admin_dashb
 import 'package:education_payment_app/features/admin_laporan/pages/admin_laporan_page.dart';
 import 'package:education_payment_app/features/admin_master/pages/admin_data_master_page.dart';
 import 'package:education_payment_app/features/admin_transaksi/pages/admin_transaksi_page.dart';
+import 'package:education_payment_app/features/auth/login_screen.dart';
+import 'package:education_payment_app/features/auth/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,14 +11,19 @@ import '../features/admin_dashboard/admin_scaffold.dart';
 
 final appRouterProvider = Provider<GoRouter>((_ref){
   return GoRouter(
-    initialLocation: '/admin/dashboard',
+    initialLocation: '/splash',
 
     routes: [
       GoRoute(
+        path: '/splash',
+        name: 'splash',
+        builder: (context, state) => const SplashScreen(),
+        ),
+      GoRoute(
         path: '/login',
         name: 'login',
-        builder: (context, state) => const Scaffold(body: Center(child: Text('Halaman Login'))),
-        ),
+        builder: (context, state) => const LoginScreen(),
+      ),
       GoRoute(
         path: '/wali',
         name: 'wali',
@@ -64,5 +71,4 @@ final appRouterProvider = Provider<GoRouter>((_ref){
       ),
     ],
   );
-
 });
