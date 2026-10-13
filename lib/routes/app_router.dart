@@ -1,24 +1,26 @@
-import 'package:education_payment_app/features/admin_dashboard/pages/admin_dashboard_page.dart';
-import 'package:education_payment_app/features/admin_laporan/pages/admin_laporan_page.dart';
-import 'package:education_payment_app/features/admin_master/pages/admin_data_master_page.dart';
-import 'package:education_payment_app/features/admin_transaksi/pages/admin_transaksi_page.dart';
-import 'package:education_payment_app/features/auth/login_screen.dart';
-import 'package:education_payment_app/features/auth/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../features/admin_dashboard/admin_scaffold.dart';
 
-final appRouterProvider = Provider<GoRouter>((_ref){
+import '../features/auth/splash_screen.dart';
+import '../features/auth/login_screen.dart';
+import '../features/admin_dashboard/admin_scaffold.dart';
+import '../features/admin_dashboard/pages/admin_dashboard_page.dart';
+import '../features/admin_transaksi/pages/admin_transaksi_page.dart';
+import '../features/admin_transaksi/pages/detail_transaksi_page.dart';
+import '../features/admin_transaksi/models/transaksi_model.dart';
+import '../features/admin_paket/pages/admin_paket_page.dart';
+import '../features/admin_laporan/pages/admin_laporan_page.dart';
+
+final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
-
     routes: [
       GoRoute(
         path: '/splash',
         name: 'splash',
         builder: (context, state) => const SplashScreen(),
-        ),
+      ),
       GoRoute(
         path: '/login',
         name: 'login',
@@ -27,10 +29,21 @@ final appRouterProvider = Provider<GoRouter>((_ref){
       GoRoute(
         path: '/wali',
         name: 'wali',
-        builder: (context, state) => const Scaffold(body: Center(child: Text('Portal Wali'))),
+        builder: (context, state) => Scaffold(
+          appBar: AppBar(title: const Text('Portal Wali Siswa')),
+          body: const Center(child: Text('Halaman Ringkasan Tagihan Siswa')),
+        ),
+      ),
+      GoRoute(
+        path: '/admin/transaksi/detail',
+        name: 'detail_transaksi',
+        builder: (context, state) {
+          final item = state.extra as TransaksiModel?;
+          return DetailTransaksiPage(transaksi: item);
+        },
       ),
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell){
+        builder: (context, state, navigationShell) {
           return AdminScaffold(navigationShell: navigationShell);
         },
         branches: [
@@ -39,10 +52,9 @@ final appRouterProvider = Provider<GoRouter>((_ref){
               GoRoute(
                 path: '/admin/dashboard',
                 builder: (context, state) => const AdminDashboardPage(),
-                ),
+              ),
             ],
           ),
-
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -54,8 +66,12 @@ final appRouterProvider = Provider<GoRouter>((_ref){
           StatefulShellBranch(
             routes: [
               GoRoute(
+                path: '/admin/paket',
+                builder: (context, state) => const AdminPaketPage(),
+              ),
+              GoRoute(
                 path: '/admin/data',
-                builder: (context, state) => const AdminDataMasterPage(),
+                builder: (context, state) => const AdminPaketPage(),
               ),
             ],
           ),
