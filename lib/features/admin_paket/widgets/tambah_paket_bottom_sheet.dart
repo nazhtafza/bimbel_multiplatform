@@ -27,6 +27,7 @@ class TambahPaketBottomSheet extends ConsumerStatefulWidget {
 class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet> {
   final _namaController = TextEditingController();
   final _nominalController = TextEditingController();
+  DateTime? _selectedJatuhTempo;
   bool _isSubmitting = false;
 
   @override
@@ -35,6 +36,9 @@ class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet>
     if (widget.existingPaket != null) {
       _namaController.text = widget.existingPaket!.namaPaket;
       _nominalController.text = _formatNumber(widget.existingPaket!.nominal.toString());
+      _selectedJatuhTempo = widget.existingPaket!.jatuhTempo ?? DateTime(DateTime.now().year, DateTime.now().month, 10);
+    } else {
+      _selectedJatuhTempo = DateTime(DateTime.now().year, DateTime.now().month, 10);
     }
   }
 
@@ -63,6 +67,43 @@ class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet>
     return int.tryParse(clean) ?? 0;
   }
 
+  String _formatJatuhTempoDisplay(DateTime? date) {
+    if (date == null) return 'Pilih Tanggal Jatuh Tempo';
+    const bulan = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return '${date.day} ${bulan[date.month - 1]} ${date.year}';
+  }
+
+  Future<void> _pickJatuhTempo() async {
+    final now = DateTime.now();
+    final initialDate = _selectedJatuhTempo ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 10),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF6200EE),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF1C1C1E),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedJatuhTempo = picked;
+      });
+    }
+  }
+
   Future<void> _handleSubmit() async {
     final nama = _namaController.text.trim();
     final nominal = _parseNominal(_nominalController.text);
@@ -87,6 +128,7 @@ class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet>
       await ref.read(paketControllerProvider.notifier).tambahPaket(
             namaPaket: nama,
             nominal: nominal,
+            jatuhTempo: _selectedJatuhTempo,
           );
       if (mounted) {
         Navigator.pop(context);
@@ -99,6 +141,7 @@ class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet>
             id: widget.existingPaket!.id,
             namaPaket: nama,
             nominal: nominal,
+            jatuhTempo: _selectedJatuhTempo,
           );
       if (mounted) {
         Navigator.pop(context);
@@ -270,7 +313,76 @@ class _TambahPaketBottomSheetState extends ConsumerState<TambahPaketBottomSheet>
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 18),
+
+            // Field 3: Jatuh Tempo Pembayaran (Format Kalender)
+            const Text(
+              'Jatuh Tempo Pembayaran',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1C1C1E),
+              ),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: _pickJatuhTempo,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F4F6),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E2E8)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6200EE).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.calendar_month_rounded,
+                        color: Color(0xFF6200EE),
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatJatuhTempoDisplay(_selectedJatuhTempo),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1C1C1E),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Klik untuk memilih tanggal kalender',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF8E8E93),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.edit_calendar_rounded,
+                      color: Color(0xFF6200EE),
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 30),
 
             // Tombol Verifikasi Pembayaran (Simpan)
             SizedBox(

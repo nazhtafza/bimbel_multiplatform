@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DashboardSummary {
@@ -18,6 +20,24 @@ class DashboardSummary {
   String get totalLunasDisplay => totalSiswaLunas != null ? totalSiswaLunas.toString() : '-';
   String get totalBelumBayarDisplay => totalBelumBayar != null ? totalBelumBayar.toString() : '-';
   String get totalJatuhTempoDisplay => totalJatuhTempo != null ? totalJatuhTempo.toString() : '-';
+
+  Map<String, dynamic> toMap() {
+    return {
+      'totalSiswa': totalSiswa,
+      'totalSiswaLunas': totalSiswaLunas,
+      'totalBelumBayar': totalBelumBayar,
+      'totalJatuhTempo': totalJatuhTempo,
+    };
+  }
+
+  factory DashboardSummary.fromMap(Map<String, dynamic> map) {
+    return DashboardSummary(
+      totalSiswa: map['totalSiswa'] as int?,
+      totalSiswaLunas: map['totalSiswaLunas'] as int?,
+      totalBelumBayar: map['totalBelumBayar'] as int?,
+      totalJatuhTempo: map['totalJatuhTempo'] as int?,
+    );
+  }
 }
 
 class RiwayatPembayaranItem {
@@ -45,6 +65,16 @@ class RiwayatPembayaranItem {
       status: map['status']?.toString() ?? 'Lunas',
       tanggal: map['tanggal']?.toString() ?? map['created_at']?.toString() ?? '',
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'nama_siswa': namaSiswa,
+      'nominal': nominal,
+      'status': status,
+      'tanggal': tanggal,
+    };
   }
 }
 
@@ -93,13 +123,37 @@ class DashboardController extends StateNotifier<DashboardState> {
   SupabaseClient get _client => Supabase.instance.client;
 
   Future<void> loadData() async {
-    state = state.copyWith(isLoading: true, error: null);
+    // 0. Muat cache offline terlebih dahulu jika riwayat masih kosong
+    if (state.riwayat.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString('cache_dashboard_data');
+        if (cached != null && cached.isNotEmpty) {
+          final map = jsonDecode(cached) as Map<String, dynamic>;
+          final cachedSummary = map['summary'] != null
+              ? DashboardSummary.fromMap(map['summary'] as Map<String, dynamic>)
+              : state.summary;
+          List<RiwayatPembayaranItem> cachedRiwayat = [];
+          if (map['riwayat'] is List) {
+            cachedRiwayat = (map['riwayat'] as List)
+                .map((item) => RiwayatPembayaranItem.fromMap(item as Map<String, dynamic>))
+                .toList();
+          }
+          state = state.copyWith(
+            summary: cachedSummary,
+            riwayat: cachedRiwayat.isNotEmpty ? cachedRiwayat : state.riwayat,
+          );
+        }
+      } catch (_) {}
+    }
 
-    int? totalSiswa;
-    int? totalLunas;
-    int? totalBelumBayar;
-    int? totalJatuhTempo;
-    List<RiwayatPembayaranItem> riwayatList = [];
+    state = state.copyWith(isLoading: state.riwayat.isEmpty, error: null);
+
+    int? totalSiswa = state.summary.totalSiswa;
+    int? totalLunas = state.summary.totalSiswaLunas;
+    int? totalBelumBayar = state.summary.totalBelumBayar;
+    int? totalJatuhTempo = state.summary.totalJatuhTempo;
+    List<RiwayatPembayaranItem> riwayatList = state.riwayat;
 
     // 1. Ambil summary total siswa
     try {
@@ -108,7 +162,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         totalSiswa = count;
       }
     } catch (_) {
-      // Tabel belum ada / belum ada data -> tetap null (tampil '-')
+      // Pertahankan nilai lama
     }
 
     // 2. Ambil summary status transaksi
@@ -131,7 +185,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           .eq('status', 'Jatuh Tempo');
       if (jatuhTempoCount > 0) totalJatuhTempo = jatuhTempoCount;
     } catch (_) {
-      // Tabel belum ada / belum ada data -> tetap null (tampil '-')
+      // Pertahankan nilai lama
     }
 
     // 3. Ambil riwayat pembayaran
@@ -147,19 +201,31 @@ class DashboardController extends StateNotifier<DashboardState> {
           .map((item) => RiwayatPembayaranItem.fromMap(item as Map<String, dynamic>))
           .toList();
     } catch (_) {
-      riwayatList = [];
+      // Saat lost connection / offline, pertahankan data terakhir
     }
+
+    final newSummary = DashboardSummary(
+      totalSiswa: totalSiswa,
+      totalSiswaLunas: totalLunas,
+      totalBelumBayar: totalBelumBayar,
+      totalJatuhTempo: totalJatuhTempo,
+    );
 
     state = state.copyWith(
       isLoading: false,
-      summary: DashboardSummary(
-        totalSiswa: totalSiswa,
-        totalSiswaLunas: totalLunas,
-        totalBelumBayar: totalBelumBayar,
-        totalJatuhTempo: totalJatuhTempo,
-      ),
+      summary: newSummary,
       riwayat: riwayatList,
     );
+
+    // Simpan ke cache offline
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cacheMap = {
+        'summary': newSummary.toMap(),
+        'riwayat': riwayatList.map((r) => r.toMap()).toList(),
+      };
+      await prefs.setString('cache_dashboard_data', jsonEncode(cacheMap));
+    } catch (_) {}
   }
 
   void updateSearch(String query) {

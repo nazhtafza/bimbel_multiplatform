@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../admin_dashboard/controllers/dashboard_controller.dart';
 import '../../admin_paket/models/paket_model.dart';
+import '../../admin_user/controllers/user_wali_controller.dart';
+import '../../admin_user/models/user_wali_model.dart';
 import '../models/transaksi_model.dart';
 
 class TransaksiState {
@@ -78,8 +82,32 @@ class TransaksiController extends StateNotifier<TransaksiState> {
     ]);
   }
 
+  Future<void> _saveCache(List<TransaksiModel> list) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = list.map((t) => t.toMap()).toList();
+      await prefs.setString('cache_admin_transaksi', jsonEncode(data));
+    } catch (_) {}
+  }
+
   Future<void> loadTransaksi() async {
-    state = state.copyWith(isLoading: true, error: null);
+    // 0. Muat cache lokal terlebih dahulu jika state masih kosong
+    if (state.daftarTransaksi.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString('cache_admin_transaksi');
+        if (cached != null && cached.isNotEmpty) {
+          final list = (jsonDecode(cached) as List)
+              .map((item) => TransaksiModel.fromMap(item as Map<String, dynamic>))
+              .toList();
+          if (list.isNotEmpty) {
+            state = state.copyWith(daftarTransaksi: list);
+          }
+        }
+      } catch (_) {}
+    }
+
+    state = state.copyWith(isLoading: state.daftarTransaksi.isEmpty, error: null);
     try {
       dynamic res;
       try {
@@ -99,29 +127,73 @@ class TransaksiController extends StateNotifier<TransaksiState> {
           .toList();
 
       state = state.copyWith(isLoading: false, daftarTransaksi: list);
+      _saveCache(list);
     } catch (_) {
-      // Jika tabel belum dibuat / belum ada data, biarkan kosong []
+      // Saat lost connection / offline, pertahankan transaksi yang sudah ada di memory / cache
       state = state.copyWith(isLoading: false);
     }
   }
 
   Future<void> loadSiswa() async {
+    List<Map<String, String>> waliList = [];
+
+    // 0. Coba ambil dari cache lokal user wali agar instan & offline-ready
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cache_user_wali_data');
+      if (cached != null && cached.isNotEmpty) {
+        final list = (jsonDecode(cached) as List)
+            .map((item) => UserWaliModel.fromMap(item as Map<String, dynamic>))
+            .toList();
+        waliList = list
+            .map((w) => {
+                  'id': w.id,
+                  'nama': w.nama,
+                  'email': w.email,
+                })
+            .toList();
+        if (waliList.isNotEmpty) {
+          state = state.copyWith(daftarSiswa: waliList);
+        }
+      }
+    } catch (_) {}
+
+    // 1. Ambil nama dari tabel 'users' di Supabase dengan role Wali
     try {
       final res = await _client
-          .from('siswa')
-          .select('id, nama')
+          .from('users')
+          .select('id, nama, email, role')
           .order('nama', ascending: true);
 
-      final list = (res as List)
-          .map((item) => {
-                'id': item['id']?.toString() ?? '',
-                'nama': item['nama']?.toString() ?? '',
-              })
-          .toList();
-
-      state = state.copyWith(daftarSiswa: list);
+      if (res.isNotEmpty) {
+        final fetched = <Map<String, String>>[];
+        for (final item in res) {
+          final role = (item['role']?.toString() ?? '').toLowerCase();
+          if (role == 'admin') continue; // Hanya ambil user wali
+          final nama = item['nama']?.toString().trim() ?? '';
+          if (nama.isEmpty) continue;
+          fetched.add({
+            'id': item['id']?.toString() ?? '',
+            'nama': nama,
+            'email': item['email']?.toString() ?? '',
+          });
+        }
+        if (fetched.isNotEmpty) {
+          state = state.copyWith(daftarSiswa: fetched);
+          return;
+        }
+      }
     } catch (_) {
-      // Abaikan jika tabel siswa belum ada
+      // 2. Fallback: ambil dari userWaliControllerProvider
+      try {
+        final waliFromProvider = _ref.read(userWaliControllerProvider).daftarWali;
+        if (waliFromProvider.isNotEmpty) {
+          final list = waliFromProvider
+              .map((w) => {'id': w.id, 'nama': w.nama, 'email': w.email})
+              .toList();
+          state = state.copyWith(daftarSiswa: list);
+        }
+      } catch (_) {}
     }
   }
 
@@ -215,6 +287,8 @@ class TransaksiController extends StateNotifier<TransaksiState> {
         daftarTransaksi: [localItem, ...state.daftarTransaksi],
       );
     }
+
+    _saveCache(state.daftarTransaksi);
 
     // Refresh ringkasan dasbor agar sinkron
     try {
@@ -347,6 +421,7 @@ class TransaksiController extends StateNotifier<TransaksiState> {
 
     final filtered = state.daftarTransaksi.where((t) => t.id != id).toList();
     state = state.copyWith(daftarTransaksi: filtered);
+    _saveCache(filtered);
 
     try {
       _ref.read(dashboardControllerProvider.notifier).loadData();

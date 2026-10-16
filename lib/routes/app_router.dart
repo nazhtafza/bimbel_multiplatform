@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,7 +9,9 @@ import '../features/admin_transaksi/pages/admin_transaksi_page.dart';
 import '../features/admin_transaksi/pages/detail_transaksi_page.dart';
 import '../features/admin_transaksi/models/transaksi_model.dart';
 import '../features/admin_paket/pages/admin_paket_page.dart';
+import '../features/admin_user/pages/admin_user_wali_page.dart';
 import '../features/admin_laporan/pages/admin_laporan_page.dart';
+import '../features/wali/pages/wali_home_page.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -29,10 +30,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/wali',
         name: 'wali',
-        builder: (context, state) => Scaffold(
-          appBar: AppBar(title: const Text('Portal Wali Siswa')),
-          body: const Center(child: Text('Halaman Ringkasan Tagihan Siswa')),
-        ),
+        builder: (context, state) => const WaliHomePage(),
       ),
       GoRoute(
         path: '/admin/transaksi/detail',
@@ -72,6 +70,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/admin/data',
                 builder: (context, state) => const AdminPaketPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/admin/user',
+                builder: (context, state) => const AdminUserWaliPage(),
               ),
             ],
           ),

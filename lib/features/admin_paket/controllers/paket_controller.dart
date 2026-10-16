@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../admin_transaksi/controllers/transaksi_controller.dart';
 import '../models/paket_model.dart';
@@ -41,20 +43,54 @@ class PaketController extends StateNotifier<PaketState> {
 
   SupabaseClient get _client => Supabase.instance.client;
 
-  Future<void> loadPaket() async {
-    state = state.copyWith(isLoading: true, error: null);
+  Future<void> _saveCache(List<PaketModel> list) async {
     try {
-      final res = await _client
-          .from('paket')
-          .select('id, nama_paket, nominal, created_at')
-          .order('created_at', ascending: true);
+      final prefs = await SharedPreferences.getInstance();
+      final data = list.map((p) => p.toMap()).toList();
+      await prefs.setString('cache_paket_data', jsonEncode(data));
+    } catch (_) {}
+  }
+
+  Future<void> loadPaket() async {
+    // 0. Muat cache offline lokal jika daftar masih kosong
+    if (state.daftarPaket.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString('cache_paket_data');
+        if (cached != null && cached.isNotEmpty) {
+          final list = (jsonDecode(cached) as List)
+              .map((item) => PaketModel.fromMap(item as Map<String, dynamic>))
+              .toList();
+          if (list.isNotEmpty) {
+            state = state.copyWith(daftarPaket: list);
+          }
+        }
+      } catch (_) {}
+    }
+
+    state = state.copyWith(isLoading: state.daftarPaket.isEmpty, error: null);
+    try {
+      dynamic res;
+      try {
+        res = await _client
+            .from('paket')
+            .select('id, nama_paket, nominal, jatuh_tempo, created_at')
+            .order('created_at', ascending: true);
+      } catch (_) {
+        res = await _client
+            .from('paket')
+            .select('id, nama_paket, nominal, created_at')
+            .order('created_at', ascending: true);
+      }
 
       final list = (res as List)
           .map((item) => PaketModel.fromMap(item as Map<String, dynamic>))
           .toList();
 
       state = state.copyWith(isLoading: false, daftarPaket: list);
+      _saveCache(list);
     } catch (_) {
+      // Saat offline / lost connection, pertahankan data terakhir
       state = state.copyWith(isLoading: false);
     }
   }
@@ -62,6 +98,7 @@ class PaketController extends StateNotifier<PaketState> {
   Future<bool> tambahPaket({
     required String namaPaket,
     required int nominal,
+    DateTime? jatuhTempo,
   }) async {
     state = state.copyWith(isLoading: true);
 
@@ -71,43 +108,48 @@ class PaketController extends StateNotifier<PaketState> {
       nominal: nominal,
       badgeLetter: 'A',
       createdAt: DateTime.now(),
+      jatuhTempo: jatuhTempo,
     );
 
+    List<PaketModel> newList;
     try {
-      final res = await _client.from('paket').insert({
+      final insertData = {
         'nama_paket': namaPaket,
         'nominal': nominal,
-      }).select().maybeSingle();
+        if (jatuhTempo != null) 'jatuh_tempo': jatuhTempo.toIso8601String(),
+      };
+      dynamic res;
+      try {
+        res = await _client.from('paket').insert(insertData).select().maybeSingle();
+      } catch (_) {
+        final fallback = Map<String, dynamic>.from(insertData)..remove('jatuh_tempo');
+        res = await _client.from('paket').insert(fallback).select().maybeSingle();
+      }
 
       if (res != null) {
-        final serverPaket = PaketModel.fromMap(res);
-        state = state.copyWith(
-          isLoading: false,
-          daftarPaket: [...state.daftarPaket, serverPaket],
-        );
+        final serverPaket = PaketModel.fromMap(res).copyWith(jatuhTempo: jatuhTempo);
+        newList = [...state.daftarPaket, serverPaket];
       } else {
-        state = state.copyWith(
-          isLoading: false,
-          daftarPaket: [...state.daftarPaket, localNewPaket],
-        );
+        newList = [...state.daftarPaket, localNewPaket];
       }
-      return true;
     } catch (e) {
-      // ignore: avoid_print
-      print('ERROR SUPABASE INSERT PAKET: $e');
       // Simpan di local state jika Supabase belum siap
-      state = state.copyWith(
-        isLoading: false,
-        daftarPaket: [...state.daftarPaket, localNewPaket],
-      );
-      return true;
+      newList = [...state.daftarPaket, localNewPaket];
     }
+
+    state = state.copyWith(
+      isLoading: false,
+      daftarPaket: newList,
+    );
+    _saveCache(newList);
+    return true;
   }
 
   Future<bool> updatePaket({
     required String id,
     required String namaPaket,
     required int nominal,
+    DateTime? jatuhTempo,
   }) async {
     state = state.copyWith(isLoading: true);
 
@@ -120,22 +162,34 @@ class PaketController extends StateNotifier<PaketState> {
     } catch (_) {}
 
     try {
-      await _client.from('paket').update({
+      final updateData = {
         'nama_paket': namaPaket,
         'nominal': nominal,
-      }).eq('id', id);
+        if (jatuhTempo != null) 'jatuh_tempo': jatuhTempo.toIso8601String(),
+      };
+      try {
+        await _client.from('paket').update(updateData).eq('id', id);
+      } catch (_) {
+        final fallback = Map<String, dynamic>.from(updateData)..remove('jatuh_tempo');
+        await _client.from('paket').update(fallback).eq('id', id);
+      }
     } catch (_) {
       // Abaikan jika offline / local id
     }
 
     final updatedList = state.daftarPaket.map((p) {
       if (p.id == id) {
-        return p.copyWith(namaPaket: namaPaket, nominal: nominal);
+        return p.copyWith(
+          namaPaket: namaPaket,
+          nominal: nominal,
+          jatuhTempo: jatuhTempo ?? p.jatuhTempo,
+        );
       }
       return p;
     }).toList();
 
     state = state.copyWith(isLoading: false, daftarPaket: updatedList);
+    _saveCache(updatedList);
 
     // Sinkronkan nama kategori di data transaksi
     if (oldNama.isNotEmpty) {
@@ -170,6 +224,7 @@ class PaketController extends StateNotifier<PaketState> {
 
     final filtered = state.daftarPaket.where((p) => p.id != id).toList();
     state = state.copyWith(isLoading: false, daftarPaket: filtered);
+    _saveCache(filtered);
 
     // Sinkronkan ke Transaksi jika filter kategori yang dihapus sedang terpilih
     if (oldNama.isNotEmpty) {

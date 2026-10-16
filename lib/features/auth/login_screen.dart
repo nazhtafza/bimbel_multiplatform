@@ -63,14 +63,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           SnackBar(content: Text(res.error!), backgroundColor: Colors.red),
         );
       } else {
-        if (res.role == 'Admin') {
-          context.go('/admin/dashboard');
-        } else if (res.role == 'Wali') {
+        final roleLower = (res.role ?? '').toLowerCase();
+        if (roleLower == 'wali') {
           context.go('/wali');
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Role akun tidak terdaftar di database.')),
-          );
+          // Default ke admin dashboard
+          context.go('/admin/dashboard');
         }
       }
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../admin_paket/controllers/paket_controller.dart';
 import '../../admin_paket/models/paket_model.dart';
+import '../../wali/controllers/wali_home_controller.dart';
 import '../controllers/transaksi_controller.dart';
 
 class TambahTransaksiBottomSheet extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class TambahTransaksiBottomSheet extends ConsumerStatefulWidget {
 class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBottomSheet> {
   String? _selectedSiswaId;
   String _namaSiswa = '';
+  String _selectedWaliEmail = '';
   PaketModel? _selectedPaket;
 
   final _namaManualController = TextEditingController();
@@ -30,6 +32,7 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
   final _catatanController = TextEditingController();
 
   String _metodePembayaran = 'Tunai (Cash)';
+  String _statusPembayaran = 'Belum Bayar';
   DateTime _tanggalPembayaran = DateTime.now();
   bool _isSubmitting = false;
   bool _isManualInput = false;
@@ -100,44 +103,60 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
 
   Future<void> _handleSubmit() async {
     final nama = _isManualInput ? _namaManualController.text.trim() : _namaSiswa.trim();
-    final nominal = _parseNominal(_nominalController.text);
 
     if (nama.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pilih atau masukkan nama siswa'), backgroundColor: Colors.red),
+        const SnackBar(content: Text('Pilih atau masukkan nama siswa / wali murid'), backgroundColor: Colors.red),
       );
       return;
     }
 
+    if (_statusPembayaran == 'Belum Bayar' && _selectedPaket == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pilih paket bimbel terlebih dahulu agar tagihan wali sesuai tarif paket!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    int nominal = _statusPembayaran == 'Belum Bayar'
+        ? (_selectedPaket?.nominal ?? 0)
+        : _parseNominal(_nominalController.text);
+
     if (nominal <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nominal pembayaran harus lebih dari 0'), backgroundColor: Colors.red),
+        const SnackBar(content: Text('Nominal pembayaran harus lebih dari 0. Pilih paket bimbel terlebih dahulu.'), backgroundColor: Colors.red),
       );
       return;
     }
 
     setState(() => _isSubmitting = true);
 
-    String statusFinal = 'Lunas';
+    String statusFinal = _statusPembayaran;
     String catatanFinal = _catatanController.text.trim();
     String? kategori = _selectedPaket?.namaPaket;
 
-    if (_selectedPaket != null) {
+    if (_selectedPaket != null && statusFinal == 'Lunas') {
       final harga = _selectedPaket!.nominal;
       if (nominal < harga) {
         statusFinal = 'Belum Bayar';
         final kurang = harga - nominal;
-        final noteKurang = 'Uang kurang Rp ${_formatNumber(kurang.toString())} (Paket: ${_selectedPaket!.namaPaket})';
+        final noteKurang = 'Kurang Rp ${_formatNumber(kurang.toString())} (Paket: ${_selectedPaket!.namaPaket})';
         catatanFinal = catatanFinal.isEmpty ? noteKurang : '$catatanFinal - $noteKurang';
       } else if (nominal > harga) {
         final kembalian = nominal - harga;
         final noteKembalian = 'Kembalian Rp ${_formatNumber(kembalian.toString())} (Paket: ${_selectedPaket!.namaPaket})';
         catatanFinal = catatanFinal.isEmpty ? noteKembalian : '$catatanFinal - $noteKembalian';
-      } else {
-        final notePas = 'Paket: ${_selectedPaket!.namaPaket}';
-        catatanFinal = catatanFinal.isEmpty ? notePas : '$catatanFinal - $notePas';
       }
     }
+
+    // Sertakan identitas Wali dalam catatan untuk sinkronisasi otomatis ke portal wali
+    final waliNote = _selectedWaliEmail.isNotEmpty
+        ? 'Wali: $nama ($_selectedWaliEmail)'
+        : 'Wali: $nama';
+    catatanFinal = catatanFinal.isEmpty ? waliNote : '$catatanFinal ($waliNote)';
 
     await ref.read(transaksiControllerProvider.notifier).tambahTransaksi(
           namaSiswa: nama,
@@ -151,10 +170,20 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
           kategori: kategori,
         );
 
+    // Refresh data wali agar langsung sinkron di portal wali murid
+    try {
+      ref.read(waliHomeControllerProvider.notifier).loadData();
+    } catch (_) {}
+
     if (mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transaksi pembayaran berhasil dicatat!')),
+        SnackBar(
+          content: Text(statusFinal == 'Lunas'
+              ? 'Transaksi pembayaran lunas berhasil dicatat!'
+              : 'Tagihan SPP berhasil dibuat untuk $nama!'),
+          backgroundColor: const Color(0xFF00A86B),
+        ),
       );
     }
   }
@@ -203,12 +232,12 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
             ),
             const SizedBox(height: 20),
 
-            // Field 1: Pilih Siswa
+            // Field 1: Pilih Siswa / Wali Murid
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Pilih Siswa',
+                  'Pilih Siswa / Wali Murid',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -246,16 +275,27 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                     isExpanded: true,
                     value: _selectedSiswaId,
                     hint: const Text(
-                      'Pilih siswa dari daftar',
-                      style: TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
+                      'Pilih siswa / wali murid dari daftar',
+                      style: TextStyle(color: Color(0xFFAAAAAA), fontSize: 13.5),
                     ),
                     icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF4A4A4A)),
                     items: daftarSiswa.map((item) {
+                      final nama = item['nama'] ?? '';
+                      final email = item['email'] ?? '';
                       return DropdownMenuItem<String>(
                         value: item['id'],
-                        child: Text(
-                          item['nama'] ?? '',
-                          style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.person_pin_rounded, color: Color(0xFF6200EE), size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                email.isNotEmpty ? '$nama • Wali ($email)' : '$nama • Wali',
+                                style: const TextStyle(fontSize: 13.5, color: Color(0xFF1C1C1E), fontWeight: FontWeight.w500),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     }).toList(),
@@ -264,6 +304,7 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                         _selectedSiswaId = val;
                         final found = daftarSiswa.firstWhere((s) => s['id'] == val, orElse: () => {});
                         _namaSiswa = found['nama'] ?? '';
+                        _selectedWaliEmail = found['email'] ?? '';
                       });
                     },
                   ),
@@ -280,7 +321,7 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                   controller: _namaManualController,
                   style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
                   decoration: const InputDecoration(
-                    hintText: 'Pilih siswa dari daftar atau ketik nama',
+                    hintText: 'Pilih wali dari daftar atau ketik nama',
                     hintStyle: TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
                     border: InputBorder.none,
                     isDense: true,
@@ -348,11 +389,63 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                 ),
               ),
             ),
+            if (_selectedPaket != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEDE7F6),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFD1C4E9)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, color: Color(0xFF6200EE), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Batas Jatuh Tempo Paket:',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF6200EE),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedPaket!.jatuhTempoFormatted,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF311B92),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6200EE),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Sinkron ke Wali',
+                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
 
-            // Field 3: Nominal Pembayaran
+            // Field: Status Transaksi SPP
             const Text(
-              'Nominal Pembayaran',
+              'Status Transaksi SPP',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -360,18 +453,151 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
               ),
             ),
             const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _statusPembayaran = 'Belum Bayar';
+                        if (_selectedPaket != null) {
+                          _nominalController.text = _formatNumber(_selectedPaket!.nominal.toString());
+                        }
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFFFF3E0) : const Color(0xFFF4F4F6),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFE65100) : Colors.transparent,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.pending_actions_rounded,
+                            size: 16,
+                            color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFE65100) : const Color(0xFF8E8E93),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Belum Bayar (Tagihan)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFE65100) : const Color(0xFF8E8E93),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _statusPembayaran = 'Lunas';
+                        if (_selectedPaket != null && _nominalController.text.isEmpty) {
+                          _nominalController.text = _formatNumber(_selectedPaket!.nominal.toString());
+                        }
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: _statusPembayaran == 'Lunas' ? const Color(0xFFE8F5E9) : const Color(0xFFF4F4F6),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _statusPembayaran == 'Lunas' ? const Color(0xFF2E7D32) : Colors.transparent,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.check_circle_outline_rounded,
+                            size: 16,
+                            color: _statusPembayaran == 'Lunas' ? const Color(0xFF2E7D32) : const Color(0xFF8E8E93),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Lunas (Terbayar)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _statusPembayaran == 'Lunas' ? const Color(0xFF2E7D32) : const Color(0xFF8E8E93),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+
+            // Field 3: Nominal Pembayaran (Disabled jika Belum Bayar / Tagihan)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Nominal Pembayaran',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1C1C1E),
+                  ),
+                ),
+                if (_statusPembayaran == 'Belum Bayar')
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3E0),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFFCC80)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_rounded, size: 12, color: Color(0xFFE65100)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Terkunci sesuai paket',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFE65100),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFFF4F4F6),
+                color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFEAEAEF) : const Color(0xFFF4F4F6),
                 borderRadius: BorderRadius.circular(10),
+                border: _statusPembayaran == 'Belum Bayar' ? Border.all(color: const Color(0xFFD6D6E0)) : null,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Row(
                 children: [
-                  const Text(
+                  Text(
                     'Rp ',
                     style: TextStyle(
-                      color: Color(0xFF4A4A4A),
+                      color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFF757575) : const Color(0xFF4A4A4A),
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
@@ -379,6 +605,7 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                   Expanded(
                     child: TextField(
                       controller: _nominalController,
+                      enabled: _statusPembayaran != 'Belum Bayar',
                       keyboardType: TextInputType.number,
                       onChanged: (val) {
                         final formatted = _formatNumber(val);
@@ -388,24 +615,52 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                             selection: TextSelection.collapsed(offset: formatted.length),
                           );
                         }
-                        setState(() {}); // Update note kembalian / kurang secara realtime
+                        setState(() {});
                       },
-                      style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
-                      decoration: const InputDecoration(
-                        hintText: '35.000',
-                        hintStyle: TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: _statusPembayaran == 'Belum Bayar' ? FontWeight.bold : FontWeight.normal,
+                        color: _statusPembayaran == 'Belum Bayar' ? const Color(0xFF424242) : const Color(0xFF1C1C1E),
+                      ),
+                      decoration: InputDecoration(
+                        hintText: _statusPembayaran == 'Belum Bayar'
+                            ? (_selectedPaket != null
+                                ? _formatNumber(_selectedPaket!.nominal.toString())
+                                : 'Pilih paket bimbel di atas')
+                            : '35.000',
+                        hintStyle: const TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
                         border: InputBorder.none,
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                   ),
+                  if (_statusPembayaran == 'Belum Bayar')
+                    const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child: Icon(Icons.lock_rounded, size: 16, color: Color(0xFF8E8E93)),
+                    ),
                 ],
               ),
             ),
 
-            // Note Dinamis: Kurang Bayar / Kembalian / Pas
-            if (_selectedPaket != null && _nominalController.text.isNotEmpty) ...[
+            if (_statusPembayaran == 'Belum Bayar') ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, size: 13, color: Color(0xFFE65100)),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      _selectedPaket != null
+                          ? 'Tagihan wali terkunci otomatis sebesar Rp ${_formatNumber(_selectedPaket!.nominal.toString())} sesuai paket ${_selectedPaket!.namaPaket}.'
+                          : 'Nominal otomatis terkunci dan terisi saat Anda memilih paket bimbel di atas.',
+                      style: const TextStyle(fontSize: 11.5, color: Color(0xFFE65100), fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (_selectedPaket != null && _nominalController.text.isNotEmpty) ...[
               Builder(
                 builder: (context) {
                   final uangDibayar = _parseNominal(_nominalController.text);
@@ -591,13 +846,13 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
             ),
             const SizedBox(height: 30),
 
-            // Tombol Verifikasi Pembayaran
+            // Tombol Submit Transaksi
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6200EE),
+                  backgroundColor: _statusPembayaran == 'Belum Bayar' ? const Color(0xFFE65100) : const Color(0xFF6200EE),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(25),
                   ),
@@ -610,18 +865,22 @@ class _TambahTransaksiBottomSheetState extends ConsumerState<TambahTransaksiBott
                         height: 22,
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                       )
-                    : const Row(
+                    : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.verified_user_rounded,
+                            _statusPembayaran == 'Belum Bayar'
+                                ? Icons.send_rounded
+                                : Icons.verified_user_rounded,
                             color: Colors.white,
                             size: 20,
                           ),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Text(
-                            'Verifikasi Pembayaran',
-                            style: TextStyle(
+                            _statusPembayaran == 'Belum Bayar'
+                                ? 'Buat & Kirim Tagihan ke Wali'
+                                : 'Verifikasi Pembayaran Lunas',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,

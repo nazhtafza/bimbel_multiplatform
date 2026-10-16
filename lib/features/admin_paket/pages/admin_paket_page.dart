@@ -109,20 +109,43 @@ class AdminPaketPage extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD6F5E8),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'Rp. ${_formatCurrency(paket.nominal)}',
-                    style: const TextStyle(
-                      color: Color(0xFF00A86B),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD6F5E8),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Rp. ${_formatCurrency(paket.nominal)}',
+                        style: const TextStyle(
+                          color: Color(0xFF00A86B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today_rounded,
+                      size: 13,
+                      color: Color(0xFF8E8E93),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Jatuh tempo: ${paket.jatuhTempoFormatted}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF8E8E93),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

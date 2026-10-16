@@ -61,6 +61,7 @@ class TransaksiModel {
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'nama_siswa': namaSiswa,
       if (siswaId != null) 'siswa_id': siswaId,
       if (paketId != null) 'paket_id': paketId,

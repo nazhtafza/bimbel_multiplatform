@@ -27,19 +27,21 @@ class DetailTransaksiPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final initialItem = transaksi ??
-        const TransaksiModel(
-          id: 'demo-1',
-          namaSiswa: 'Aisyah Putri',
-          nominal: 250000,
-          status: 'Lunas',
-          metode: 'Tunai (Cash)',
-          tanggal: '5 Agu 2026',
-          kategori: 'Les calistung',
-        );
-
     final state = ref.watch(transaksiControllerProvider);
     final paketState = ref.watch(paketControllerProvider);
+
+    final initialItem = transaksi ??
+        (state.daftarTransaksi.isNotEmpty
+            ? state.daftarTransaksi.first
+            : const TransaksiModel(
+                id: '',
+                namaSiswa: 'Siswa Bimbel',
+                nominal: 0,
+                status: 'Belum Lunas',
+                metode: 'Tunai (Cash)',
+                tanggal: '-',
+                kategori: 'Paket Bimbel',
+              ));
 
     // Ambil data transaksi terkini dari state jika ada pembaruan
     final item = state.daftarTransaksi.firstWhere(
